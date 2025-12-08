@@ -27,7 +27,7 @@ const wss = new WebSocket.Server({
     noServer: true  // We'll handle upgrade manually
 });
 
-const PORT = 5000;
+const PORT = 1000;
 
 // Middleware
 app.use(cors());
