@@ -171,7 +171,7 @@ function testConnection() {
     testWs.onerror = (error) => {
         console.error('❌ Test: WebSocket connection failed', error);
         addLogEntry('❌ WebSocket test: Connection failed', 'error');
-        alert('WebSocket test failed! Make sure:\n1. Server is running on port 5000\n2. No firewall blocking connections\n3. Check browser console for errors');
+        alert('WebSocket test failed! Make sure:\n1. Server is running\n2. No firewall blocking connections\n3. Check browser console for errors');
     };
     
     testWs.onclose = () => {
@@ -231,7 +231,7 @@ function connectToPhone() {
         ws.onerror = (error) => {
             console.error('❌ WebSocket error:', error);
             updateConnectionStatus('error');
-            alert('Failed to connect to detection server. Make sure the server is running on port 5000.');
+            alert('Failed to connect to detection server. Make sure the server is running.');
         };
 
         ws.onclose = (event) => {

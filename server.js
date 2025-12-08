@@ -14,7 +14,7 @@ const server = http.createServer(app);
 
 // Logging control - set to false to only show errors
 const SHOW_LOGS = false;
-const log = (...args) => SHOW_LOGS && log(...args);
+const log = (...args) => SHOW_LOGS && console.log(...args);
 
 // Socket.IO for receiving processed frames in browser
 const io = socketIO(server, {
@@ -31,7 +31,7 @@ const wss = new WebSocket.Server({
     noServer: true  // We'll handle upgrade manually
 });
 
-const PORT = process.env.PORT || 1000;
+const PORT = process.env.PORT || 5010;
 
 // Middleware
 app.use(cors());
