@@ -27,14 +27,15 @@ print_info() {
 
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then 
-    print_error "Please do not run as root. Run as regular user with sudo privileges."
-    exit 1
+    print_info "Running as root - this is acceptable for VPS deployment"
+    USER="root"
+else
+    USER=$(whoami)
 fi
 
 # Variables
 DOMAIN="eai.synthomind.cloud"
 APP_DIR="/var/www/eai"
-USER=$(whoami)
 
 print_info "Deployment for domain: $DOMAIN"
 print_info "Application directory: $APP_DIR"
