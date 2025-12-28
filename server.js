@@ -131,6 +131,12 @@ const upload = multer({
     }
 });
 
+// Performance optimization - reduce CPU usage
+if (process.env.NODE_ENV === 'production') {
+    process.env.OMP_NUM_THREADS = '2'; // Limit OpenMP threads
+    process.env.MKL_NUM_THREADS = '2'; // Limit MKL threads
+}
+
 // Routes
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -412,15 +418,32 @@ wss.on('connection', (ws, req) => {
 
 // Process live video frame with YOLO detection
 let processingQueue = 0;
-const MAX_QUEUE = 3; // Only process 3 frames at a time
+const MAX_QUEUE = 1; // Only process 1 frame at a time to prevent memory issues
+let lastProcessedTime = 0;
+const MIN_FRAME_INTERVAL = 500; // Process max 2 frames per second (500ms interval) - slower but safer
+let activeProcesses = new Set(); // Track active Python processes
 
 function processLiveFrame(frameData) {
-    // Skip if too many frames are being processed
+    const now = Date.now();
+    
+    // Skip if processing or too soon since last frame
     if (processingQueue >= MAX_QUEUE) {
         log(`⏭️ Skipping frame (queue full: ${processingQueue})`);
         return;
     }
     
+    // Additional check: if too many active processes, skip
+    if (activeProcesses.size >= MAX_QUEUE) {
+        log(`⏭️ Skipping frame (too many active processes: ${activeProcesses.size})`);
+        return;
+    }
+    
+    if (now - lastProcessedTime < MIN_FRAME_INTERVAL) {
+        log(`⏭️ Skipping frame (too soon: ${now - lastProcessedTime}ms)`);
+        return;
+    }
+    
+    lastProcessedTime = now;
     processingQueue++;
     log(`\n🔄 PROCESSING FRAME START (Queue: ${processingQueue})`);
     log(`   Frame size: ${frameData.length} bytes`);
@@ -449,9 +472,20 @@ function processLiveFrame(frameData) {
         : ['detect_live.py', tempFramePath];
     
     const pythonProcess = spawn(pythonCmd, pythonArgs);
+    activeProcesses.add(pythonProcess.pid); // Track this process
 
     let resultData = '';
     let errorData = '';
+    
+    // Set timeout to kill process if it takes too long
+    const processTimeout = setTimeout(() => {
+        if (pythonProcess && !pythonProcess.killed) {
+            log(`   ⏱️ Process timeout, killing...`);
+            pythonProcess.kill('SIGTERM');
+            activeProcesses.delete(pythonProcess.pid);
+            processingQueue--;
+        }
+    }, 5000); // 5 second timeout
 
     pythonProcess.stdout.on('data', (data) => {
         resultData += data.toString();
@@ -463,6 +497,8 @@ function processLiveFrame(frameData) {
     });
 
     pythonProcess.on('close', (code) => {
+        clearTimeout(processTimeout); // Clear timeout
+        activeProcesses.delete(pythonProcess.pid); // Remove from tracking
         log(`   🐍 Python finished (exit code: ${code})`);
         
         if (code === 0 && fs.existsSync(tempFramePath)) {
@@ -545,6 +581,20 @@ io.on('connection', (socket) => {
     
     socket.on('disconnect', () => {
         log('📴 Socket.IO client disconnected:', socket.id);
+        
+        // Emergency cleanup: Kill any stuck processes
+        if (activeProcesses.size > 0) {
+            log(`   ⚠️ Cleaning up ${activeProcesses.size} active processes...`);
+            activeProcesses.forEach(pid => {
+                try {
+                    process.kill(pid, 'SIGTERM');
+                } catch (err) {
+                    // Process might already be dead
+                }
+            });
+            activeProcesses.clear();
+            processingQueue = 0;
+        }
     });
 });
 
