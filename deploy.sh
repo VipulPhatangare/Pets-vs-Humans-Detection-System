@@ -153,16 +153,26 @@ echo ""
 print_info "Step 13: Creating wrapper scripts for Python..."
 cat > detect_wrapper.sh << 'EOF'
 #!/bin/bash
+# Navigate to application directory
 cd /var/www/eai
+
+# Activate virtual environment
 source venv/bin/activate
-python detect.py "$@"
+
+# Run Python script with all arguments
+python3 detect.py "$@"
 EOF
 
 cat > detect_live_wrapper.sh << 'EOF'
 #!/bin/bash
+# Navigate to application directory
 cd /var/www/eai
+
+# Activate virtual environment
 source venv/bin/activate
-python detect_live.py "$@"
+
+# Run Python script with all arguments
+python3 detect_live.py "$@"
 EOF
 
 chmod +x detect_wrapper.sh detect_live_wrapper.sh
