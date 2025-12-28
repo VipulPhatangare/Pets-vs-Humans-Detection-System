@@ -418,9 +418,9 @@ wss.on('connection', (ws, req) => {
 
 // Process live video frame with YOLO detection
 let processingQueue = 0;
-const MAX_QUEUE = 1; // Only process 1 frame at a time to prevent memory issues
+const MAX_QUEUE = 3; // Allow up to 3 concurrent frames - balanced performance
 let lastProcessedTime = 0;
-const MIN_FRAME_INTERVAL = 500; // Process max 2 frames per second (500ms interval) - slower but safer
+const MIN_FRAME_INTERVAL = 200; // Process max 5 frames per second (200ms interval)
 let activeProcesses = new Set(); // Track active Python processes
 
 function processLiveFrame(frameData) {
@@ -432,9 +432,9 @@ function processLiveFrame(frameData) {
         return;
     }
     
-    // Additional check: if too many active processes, skip
-    if (activeProcesses.size >= MAX_QUEUE) {
-        log(`⏭️ Skipping frame (too many active processes: ${activeProcesses.size})`);
+    // Emergency check: if way too many active processes, skip
+    if (activeProcesses.size >= 10) {
+        log(`🚨 EMERGENCY: Too many active processes (${activeProcesses.size}), skipping frame`);
         return;
     }
     
@@ -464,12 +464,16 @@ function processLiveFrame(frameData) {
     log(`   🐍 Launching Python detection...`);
     
     // Determine Python command based on environment
-    const pythonCmd = process.env.NODE_ENV === 'production' 
-        ? path.join(__dirname, 'detect_live_wrapper.sh')
-        : 'python';
-    const pythonArgs = process.env.NODE_ENV === 'production'
-        ? [tempFramePath]
-        : ['detect_live.py', tempFramePath];
+    let pythonCmd, pythonArgs;
+    if (process.env.NODE_ENV === 'production') {
+        pythonCmd = path.join(__dirname, 'detect_live_wrapper.sh');
+        pythonArgs = [tempFramePath];
+    } else {
+        // Use system Python (has all packages installed)
+        pythonCmd = 'python';
+        pythonArgs = ['detect_live.py', tempFramePath];
+        log(`   🐍 Using Python: ${pythonCmd}`);
+    }
     
     const pythonProcess = spawn(pythonCmd, pythonArgs);
     activeProcesses.add(pythonProcess.pid); // Track this process
@@ -483,17 +487,32 @@ function processLiveFrame(frameData) {
             log(`   ⏱️ Process timeout, killing...`);
             pythonProcess.kill('SIGTERM');
             activeProcesses.delete(pythonProcess.pid);
-            processingQueue--;
+            // Don't decrement queue here - let close handler do it
         }
-    }, 5000); // 5 second timeout
+    }, 10000); // 10 second timeout
 
     pythonProcess.stdout.on('data', (data) => {
         resultData += data.toString();
     });
 
     pythonProcess.stderr.on('data', (data) => {
-        errorData += data.toString();
-        console.error('   ⚠️ Python stderr:', data.toString());
+        const msg = data.toString();
+        errorData += msg;
+        // Only log actual errors, not warnings
+        if (!msg.includes('UserWarning')) {
+            console.error('   ⚠️ Python stderr:', msg);
+        }
+    });
+    
+    pythonProcess.on('error', (err) => {
+        console.error('   ❌ Failed to spawn Python process:', err.message);
+        clearTimeout(processTimeout);
+        activeProcesses.delete(pythonProcess.pid);
+        processingQueue--;
+        // Cleanup temp file
+        try {
+            if (fs.existsSync(tempFramePath)) fs.unlinkSync(tempFramePath);
+        } catch (e) {}
     });
 
     pythonProcess.on('close', (code) => {
